@@ -1,0 +1,127 @@
+//@version=5
+indicator(title="Sky & Abyss System by Krawli Hidden V2.0", overlay=true)
+
+// Define periods for EMAs, SMAs, and Stochastic Oscillator
+fastEmaLength = 50
+slowEmaLength = 200
+maLength20 = 20
+maLength200 = 200
+stochKLength = 10
+stochDLength = 3
+stochLength = 14
+overboughtLevel = 80
+oversoldLevel = 20
+
+// Calculate EMAs and SMAs
+fastEma = ta.ema(close, fastEmaLength)
+slowEma = ta.ema(close, slowEmaLength)
+sma20 = ta.sma(close, maLength20)
+sma200 = ta.sma(close, maLength200)
+
+// Plot SMAs
+plot(sma20, color=color.blue, title="X")
+plot(sma200, color=color.yellow, title="X")
+
+// Create EMA Cloud with updated colors
+emaCloudBullish = fastEma > slowEma
+emaCloudBearish = fastEma < slowEma
+
+// Plot EMAs with transparency
+plot(fastEma, color=color.new(color.green, 100), title="X")
+plot(slowEma, color=color.new(color.red, 100), title="X")
+
+// Fill the cloud area with updated colors and opacity
+fill(plot(fastEma, "X", color=color.new(color.green, 100)),
+     plot(slowEma, "X", color=color.new(color.red, 100)),
+     color=emaCloudBullish ? color.new(#00bcd4, 70) : color.new(#9c27b0, 70), title="X")
+
+// Session Backgrounds (UTC Time)
+// London: 2:00-11:00 UTC
+// New York: 8:00-17:00 UTC
+londonSession = (hour >= 2 and hour < 11)
+newYorkSession = (hour >= 8 and hour < 17)
+
+bgcolor(color=londonSession ? color.new(color.blue, 85) : na, title="X")
+bgcolor(color=newYorkSession ? color.new(color.red, 85) : na, title="X")
+
+// Signals active 1 hour before and during sessions
+extendedLondonSession = (hour >= 1 and hour < 11)  // 1 hour before and during London
+extendedNewYorkSession = (hour >= 7 and hour < 17) // 1 hour before and during New York
+sessionActive = extendedLondonSession or extendedNewYorkSession
+
+// User input for counter-trend option
+counterTrend = input.bool(defval=false, title="Enable Counter Trend Signals")
+
+// Identify Bullish and Bearish Engulfing Patterns during extended sessions
+bullishEngulfing = sessionActive and (open <= close[1]) and (open < open[1]) and (close > open[1]) and (low <= sma20 or low <= sma200)
+bearishEngulfing = sessionActive and (open >= close[1]) and (open > open[1]) and (close < open[1]) and (high >= sma20 or high >= sma200)
+
+// Prevent Buy/Sell signals based on cloud color and counter-trend setting
+buySignalCondition = bullishEngulfing and (not emaCloudBearish or counterTrend)
+sellSignalCondition = bearishEngulfing and (not emaCloudBullish or counterTrend)
+
+// Plot Engulfing Patterns with additional conditions
+plotshape(series=buySignalCondition, location=location.belowbar, color=color.green, style=shape.triangleup, size=size.tiny, title="X")
+if buySignalCondition
+    label.new(x=bar_index, y=low - (high - low) * 0.5, text="Buy", color=na, textcolor=color.white, size=size.small, style=label.style_label_up)
+
+plotshape(series=sellSignalCondition, location=location.abovebar, color=color.red, style=shape.triangledown, size=size.tiny, title="X")
+if sellSignalCondition
+    label.new(x=bar_index, y=high + (high - low) * 0.5, text="Sell", color=na, textcolor=color.white, size=size.small, style=label.style_label_down)
+
+// Stochastic Oscillator %K and %D
+highestHigh = ta.highest(high, stochLength)
+lowestLow = ta.lowest(low, stochLength)
+k = 100 * (close - lowestLow) / (highestHigh - lowestLow)
+d = ta.sma(k, stochDLength)
+
+// Hide Overbought/Oversold Lines
+plot(na, color=na, title="X", display=display.none) // Hide %K line
+plot(na, color=na, title="X", display=display.none) // Hide %D line
+
+// Use plot instead of hline for overbought and oversold levels (hide these lines too)
+plot(na, color=na, title="X", display=display.none) // Hide Overbought line
+plot(na, color=na, title="X", display=display.none) // Hide Oversold line
+
+// Plotshape for overbought and oversold conditions (keep circles visible during sessions)
+plotshape(series=(londonSession or newYorkSession) and k > overboughtLevel, location=location.top, color=color.red, style=shape.circle, size=size.tiny, title="X")
+plotshape(series=(londonSession or newYorkSession) and k < oversoldLevel, location=location.bottom, color=color.green, style=shape.circle, size=size.tiny, title="X")
+
+// Pivot Point
+pivot_type = input.string(defval='Traditional', title='Pivot Type', options=['Traditional', 'Fibonacci'], inline='', group='Pivot')
+showPV = input.bool(defval=true, title='Pivot', inline='pv_inline', group='Pivot')
+pivot_TF = input.timeframe(defval='D', title='/ Timeframe', inline='pv_inline', group='Pivot')
+
+getTF(_tf) =>
+    tf = _tf == '' or _tf == 'Chart' ? timeframe.period : _tf
+    tf
+
+is_newbar(tf) =>
+    var int is_nb = na
+    is_nb := ta.change(time(getTF(tf))) != 0 ? 1 : 0
+    is_nb
+
+bars_since_new_sess = ta.barssince(is_newbar(pivot_TF) ? true : false)
+d0_start_bar = bar_index - bars_since_new_sess
+d0_end_bar = d0_start_bar + 1
+[d_open, d_high, d_low, d_close] = request.security(syminfo.tickerid, pivot_TF, [open, high, low, close], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+
+var float d1_open = na
+var float d1_high = na
+var float d1_low = na
+var float d1_close = na
+
+if is_newbar(pivot_TF)
+    d1_open := d_open[1]
+    d1_high := d_high[1]
+    d1_low := d_low[1]
+    d1_close := d_close[1]
+
+PP = (d1_high + d1_low + d1_close) / 3
+
+if timeframe.isintraday and showPV
+    line.new(d0_start_bar, PP, d0_end_bar, PP, xloc.bar_index, extend.right, #f57f17, line.style_solid, 2)
+
+// Alert conditions
+alertcondition(buySignalCondition, title="X", message="[CurrencyPair] [TimeFrame], Bullish signal when price touched SMA")
+alertcondition(sellSignalCondition, title="X", message="[CurrencyPair] [TimeFrame], Bearish signal when price touched SMA")
